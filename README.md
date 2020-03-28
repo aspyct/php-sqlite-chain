@@ -12,6 +12,12 @@ This system can be deployed on any PHP server with SQLite support.
 
 Important note: the system relies on write requests to recover from unexpected crashes in the chain. For example, if your head link fails after the tail link committed an instruction, but before it could commit its own transaction (on the head link), the tail link will have different data until a recovery is performed. For this reason, you should monitor unexpected process/server crashes and do a no-op write (instruction with no statement) after that. A cron can also be considered.
 
+## Use cases
+
+- Multi-region HA websites
+- Live backup
+- Point-in-time recovery
+
 ## Summary
 
 The system's basic principles are relatively simple, and based on recursion.
