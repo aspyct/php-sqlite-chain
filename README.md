@@ -2,15 +2,20 @@
 
 A distributed sqlite database implementation for php.
 
+## Overview
+
+- Strict transaction ordering on all links
 - Highly available read: data can be read locally even if other hosts are down. Data is replicated fully on each link.
-- Transactions are run strictly in the same order on each link.
-- Writes should be done on the head link, but can be sent to any link if parts of the chain are down. Recovery is possible later.
+- Writes propagate through the whole chain before returning
+- Unexpected crashes causing a partial write can be recovered.
 
-Think of it as a daisy-chain of sqlite databases. Each server (called `link` hereafter) will wait for his next link to validate the transaction before committing locally. At any time, there is at most 1 instruction executed on the tail link but not yet on the head link.
-
-This system can be deployed on any PHP server with SQLite support.
+Think of it as a daisy-chain of sqlite databases. Each server (called `link` hereafter) will wait for his next link to validate the transaction before committing locally.
 
 Important note: the system relies on write requests to recover from unexpected crashes in the chain. For example, if your head link fails after the tail link committed an instruction, but before it could commit its own transaction (on the head link), the tail link will have different data until a recovery is performed. For this reason, you should monitor unexpected process/server crashes and do a no-op write (instruction with no statement) after that. A cron can also be considered.
+
+## Requirements
+
+Any PHP server with SQLite3 and `allow_url_fopen = 1` will work.
 
 ## Use cases
 
