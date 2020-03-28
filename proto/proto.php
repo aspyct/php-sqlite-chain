@@ -1,4 +1,5 @@
 <?php
+sleep(5);
 $database_file = $_ENV['DATABASE'];
 $next_link = $_ENV['NEXT_LINK'];
 $instruction = $_POST['statement'];

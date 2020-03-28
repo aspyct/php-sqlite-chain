@@ -27,9 +27,8 @@ This has the following practical implications:
 
 - You can technically send your instructions to any link in the chain, but uplinks will not be aware of the changes until they try to write as well.
 - If a link is down in the chain, it is possible to write to links further down the chain, but not up the chain.
-- The head link assigns a sequence number to that instruction, and transmits it to the end of the chain
-- The tail link has the final decision on whether an instruction can be played or not.
-- Any link in the chain can decide to fail the instruction because of an inconsistent state
+- Conversely, if the tail link is down, it is not possible to write to the chain.
+- Any link in the chain can decide to fail the instruction because of an inconsistent state.
 - A link will refuse to execute an instruction with a reused sequence number. Previous links in the chain are responsible for recovering.
 
 ## Terminology
@@ -58,89 +57,55 @@ instruction sequence number
 instruction log
 : A simple log of executed (sequence_number, instruction)
 
-## Scenarios
+## Concurrent submissions to the chain
 
-### Happy path with 2 links
-
-1.  head link receives instruction
-2.  head link starts a transaction locally
-3.  head link inserts instruction into the log and gets its sequence number
-4.  head link runs instruction locally
-4.  head link sends instruction and sequence number to its next link
-5.  next link is the tail link
-6.  tail link starts a transaction locally
-7.  tail link inserts instruction into log
-8.  tail link runs the instruction locally
-9.  tail link commits the transaction
-10. tail link sends OK to previous link
-11. previous link is head link
-12. head link commits the transaction
-13. success
-
-### Instruction cannot run because of constraint/sql error
-
-1. head link receives instruction
-2. head link starts a transaction locally
-3. 
-
-### Next link is down
-
-1. head link receives instruction
-2. head link starts a transaction locally
-3. head link inserts instruction into the log and gets its sequence number
-4. head link sends instruction and sequence number to its next link
-5. next link is down
-6. head link rolls back the transaction
-7. error: link down (retry later)
-
-### Head link dies after next link validates, but before head commits
-
-1.  head link receives instruction #1
-2.  head link starts a transaction locally
-3.  head link inserts instruction #1 into the log and gets its sequence number
-4.  head link sends instruction #1 and sequence number to its next link
-5.  next link is the tail link
-6.  tail link starts a transaction locally
-7.  tail link inserts instruction #1 into log
-8.  tail link runs instruction #1
-9.  tail link commits the transaction
-10. tail link sends OK to previous link
-11. previous link is head link
-12. head link unexpectedly died
-
-Situation: instruction has been executed on tail link, but there's no trace of it on the head link.
-The situation will be resolved when the head link receives another instruction.
-
-13. head link receives instruction #2
-14. head link starts a transaction locally
-15. head link inserts instruction #2 into the log and gets its sequence number
-16. head link sends instruction #2 and sequence number to its next link
-17. next link is the tail link
-18. tail link starts a transaction locally
-19. tail link fails to insert sequence number because of UNIQUE constraint
-20. tail link sends back instruction #1 to previous link
-21. previous link is head link
-22. head link updates local instruction log to include instruction #1 at the right sequence number
-23. head link runs instruction #1
-24. head link commits transaction
-25. error: recovery happened (retry now)
-
-It is the responsibility of the client to retry the instruction to the head server.
-Note that other concurrent instructions may have been executed before you have a chance to retry.
-
-### Concurrent submissions to head link
-
-Step 3 must be blocking to safeguard against concurrency issues.
-
-Due to SQLite3 internal locking mechanism, this will be ensured by using transactions and autoincrement primary keys.
+SQLite3 uses an internal locking mechanism to make sure that only one connection writes to the database at the same time.
 
 Consider the following DDL:
 
 ```
-create table instruction (
+create table instruction_log (
     sequence_number integer primary key autoincrement,
     statements text
 );
 ```
 
+Client 1:
 
+```
+begin transaction;
+insert into instruction_log (statements) values ('...');
+```
+
+Client 2:
+
+```
+begin transaction;
+
+-- The insert will hang until client 1 terminates the transaction.
+insert into instruction_log (statements) values ('...');
+```
+
+We use this property to ensure that each instruction has a unique sequence number across the whole chain.
+
+This is done by keeping a transaction open until the N+1 link itself completes the transaction. For example, here's the transactions for a 3-link chain:
+
+```
+head link opens transaction
+    mid link opens transaction
+        tail link opens transaction
+        tail link commits
+    mid link commits
+head link commits
+```
+
+The chain is always traversed in the same order, which prevents deadlocks.
+
+It could also happen that two updates are triggered from different levels of the chain. For example, one update sent to the head link, and another update sent to the mid link.
+
+Consider an empty database. Concurrent updates are sent to head (update A) and mid link (update B). Because the database is empty, head link will assign sequence_number 1 to update A. It then forwards the instruction to mid link with that sequence_number.
+
+One of two things can happen:
+
+1. mid link hasn't assigned a sequence_number to update B yet. It will have to wait until update A finishes.
+2. mid link has already assigned sequence_number 1 to update B. If update B finishes successfully, sequence_number 1 will no longer be available, and mid will return update B to the head link. If update B fails, sequence_number 1 will be available, and update A will continue normally.
