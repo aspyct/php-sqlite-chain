@@ -8,10 +8,14 @@ $db = new SQLite3($database_file);
 $db->exec('begin transaction');
 
 if ($sequence_number === null) {
-    $insert = $db->prepare('insert into instruction_log (statements) values (:statement)');
+    $insert = $db->prepare('insert into instruction_log (statement) values (:statement)');
+
+    if ($insert === false) {
+        die($db->lastErrorMsg());
+    }
 }
 else {
-    $insert = $db->prepare('insert into instruction_log (sequence_number, statements) values (:sequence_number, :statement)');
+    $insert = $db->prepare('insert into instruction_log (sequence_number, statement) values (:sequence_number, :statement)');
     $insert->bindValue(':sequence_number', $sequence_number);
 }
 
@@ -19,14 +23,43 @@ $insert->bindValue(':statement', $instruction);
 
 # TODO Handle insert failure because sequence number already exists
 if (!$insert->execute()) {
-    $db->exec('rollback'); # TODO Is this necessary?
+    $sql_code = $db->lastErrorCode();
+    $sql_message = $db->lastErrorMsg();
+
+    $db->exec('rollback');
+
+    if ($sql_code === 19) {
+        // Duplicate sequence_number. Return the corresponding instruction
+        $select = $db->prepare('select statement from instruction_log where sequence_number = :sequence_number');
+        $select->bindValue(':sequence_number', $sequence_number);
+        $result = $select->execute();
+
+        $row = $result->fetchArray();
+        if ($row !== false) {
+            die(json_encode([
+                "error" => [
+                    "code" => 4,
+                    "message" => "That sequence number is already used.",
+                    "instruction" => $row[0],
+                    "sequence_number" => $sequence_number
+                ]
+            ]));
+        } else {
+            die(json_encode([
+                "error" => [
+                    "code" => 3,
+                    "message" => "This sequence number is already taken, but we can't get the corresponding instruction."
+                ]
+            ]));
+        } 
+    }
 
     die(json_encode([
         "error" => [
             "code" => 2,
             "message" => "Could not insert instruction into log",
-            "sql_code" => $db->lastErrorCode(),
-            "sql_message" => $db->lastErrorMsg()
+            "sql_code" => $sql_code,
+            "sql_message" => $sql_message
         ]
     ]));
 }
@@ -38,8 +71,23 @@ if ($sequence_number === null) {
 $db->exec('savepoint before_data_update');
 $db->exec($instruction);
 
+if ($db->lastErrorCode() !== 0) {
+    $sql_code = $db->lastErrorCode();
+    $sql_message = $db->lastErrorMsg();
+
+    $db->exec("rollback");
+    die(json_encode([
+        "error" => [
+            "code" => 5,
+            "message" => "Instruction failed",
+            "sql_code" => $sql_code,
+            "sql_message" => $sql_message
+        ]
+    ]));
+}
+
 if ($next_link !== null) {
-    $data = array('statement' => $instruction, 'sequence_numben' => $sequence_number);
+    $data = array('statement' => $instruction, 'sequence_number' => $sequence_number);
 
     // use key 'http' even if you send the request to https://...
     $options = array(
@@ -50,9 +98,9 @@ if ($next_link !== null) {
         )
     );
     $context  = stream_context_create($options);
-    $result = file_get_contents($next_link, false, $context);
+    $raw_result = file_get_contents($next_link, false, $context);
 
-    if ($result === false) {
+    if ($raw_result === false) {
         $db->exec('rollback');
 
         die(json_encode([
@@ -64,15 +112,48 @@ if ($next_link !== null) {
         ]));
     }
 
-    var_dump($result);
+    $result = json_decode($raw_result);
 
-    $result = json_decode($result);
+    if (isset($result->error)) {
+        $code = $result->error->code;
 
-    if (isset($result['error'])) {
-        if ($result['error']['code'] === 1) {
+        if ($code === 4) {
+            // Reused sequence number. Abort the current data change and replay given instruction
+            $instruction = $result->error->instruction;
+            $sequence_number = $result->error->sequence_number;
+            $db->exec('rollback to before_data_update');
+
+            $update_log = $db->prepare('update instruction_log set statement = :statement where sequence_number = :sequence_number');
+            $update_log->bindValue(':statement', $instruction);
+            $update_log->bindValue(':sequence_number', $sequence_number);
+            $update_log->execute();
+
+            $db->exec($instruction);
+
+            if ($db->lastErrorCode() !== 0) {
+                echo "Errored";
+                $sql_code = $db->lastErrorCode();
+                $sql_message = $db->lastErrorMsg();
+
+                $db->exec("rollback");
+                die(json_encode([
+                    "error" => [
+                        "code" => 6,
+                        "message" => "Cannot recover. Manual intervention is required",
+                        "sql_code" => $sql_code,
+                        "sql_message" => $sql_message
+                    ]
+                ]));
+            }
+            else {
+                echo $raw_result;
+            }
+        }
+
+        if ($code === 1) {
             $db->exec('rollback');
 
-            die(json_encode($result));
+            die($raw_result);
         }
     }
 }
