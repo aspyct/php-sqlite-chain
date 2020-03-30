@@ -89,5 +89,5 @@ interface ApiError {
 }
 
 interface PublicApi {
-    function handleRequest(array $get, array $post, array $server) : void;
+    function handleRequest() : void;
 }
