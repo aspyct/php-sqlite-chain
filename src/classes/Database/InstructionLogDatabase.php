@@ -5,6 +5,8 @@
  * also extract the history for upstream nodes that need to be updated.
  */
 class InstructionLogDatabase implements Database {
+    const DEFAULT_SEQUENCE_NUMBER = 0;
+
     /**
      * @property string
      */
@@ -55,7 +57,9 @@ class InstructionLogDatabase implements Database {
     }
 
     function getLastSequenceNumber() : int {
-        return $this->getHandle()->querySingle('select max(sequence_number) from instruction_log');
+        $lastOrNull = $this->getHandle()->querySingle('select max(sequence_number) from instruction_log');
+
+        return $lastOrNull ?? self::DEFAULT_SEQUENCE_NUMBER;
     }
 
     private function getHandle() : SQLite3 {

@@ -1,4 +1,8 @@
 <?php
+/**
+ * A base class for PublicApi implementation.
+ * It handles all the business logic, leaving only the request parsing / response sending to subclasses.
+ */
 abstract class AbstractPublicApi implements PublicApi {
     private $choreographer;
 
@@ -34,8 +38,7 @@ abstract class AbstractPublicApi implements PublicApi {
     private function getMissingInstructions(ApiRequest $request) : array {
         $lastKnownSequenceNumber = $request->getLastKnownSequenceNumber();
 
-        if ($lastKnownSequenceNumber === -1) {
-            // -1 means that our caller is not interrested in previous instructions
+        if ($lastKnownSequenceNumber === ApiRequest::DONT_RETURN_INSTRUCTIONS) {
             $missingInstructions = [];
         }
         else {
