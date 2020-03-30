@@ -1,17 +1,17 @@
-# PHP SQLite Chain
+# PHP SQLite Tree
 
 A distributed sqlite database implementation for php.
 
 ## Overview
 
-- Strict transaction ordering on all links
-- Highly available read: data can be read locally even if other hosts are down. Data is replicated fully on each link.
+- Strict transaction ordering on all nodes
+- Highly available read: data can be read locally even if other hosts are down. Data is replicated fully on each node.
 - Writes propagate through the whole chain before returning
 - Unexpected crashes causing a partial write can be recovered.
 
-Think of it as a daisy-chain of sqlite databases. Each server (called `link` hereafter) will wait for his next link to validate the transaction before committing locally.
+Think of it as a daisy-chain of sqlite databases. Each server (called `node` hereafter) will wait for his next node to validate the transaction before committing locally.
 
-Important note: the system relies on write requests to recover from unexpected crashes in the chain. For example, if your head link fails after the tail link committed an instruction, but before it could commit its own transaction (on the head link), the tail link will have different data until a recovery is performed. For this reason, you should monitor unexpected process/server crashes and do a no-op write (instruction with no statement) after that. A cron can also be considered.
+Important note: the system relies on write requests to recover from unexpected crashes in the chain. For example, if your leaf node fails after the root node committed an instruction, but before it could commit its own transaction (on the leaf node), the root node will have different data until a recovery is performed. For this reason, you should monitor unexpected process/server crashes and do a no-op write (instruction with no statement) after that. A cron can also be considered.
 
 ## Use cases
 
@@ -33,26 +33,26 @@ If that's annoying for legal reasons, you can also get it with MIT, BSD or GPLv3
 
 ## Terminology
 
-link
+node
 : One of the servers of the sqlite chain.
 
-next link
-: From the perspective of a specific link, the next link to which the transactions should be sent. A link must wait for his next link to validate before the transaction can be committed.
+next node
+: From the perspective of a specific node, the next node to which the transactions should be sent. A node must wait for his next node to validate before the transaction can be committed.
 
-head link
-: The first link in the sqlite chain. No other link references to this one as his "next link". New transactions must be initiated from this link.
+leaf node
+: A node to which no other node is referring to as its "next node"
 
-tail link
-: A link that has no "next link".
+root node
+: A node that has no "next node".
 
-write link
-: The link to which you sent the instruction
+write node
+: The node to which you sent the instruction
 
-downstream links
-: From the perspective of a specific link, downsteam links include the next link and all its downstream links.
+downstream nodes
+: From the perspective of a specific node, downsteam nodes include the next node and all its downstream nodes.
 
-upstream links
-: From the perspective of a specific link, upstream links include all links that refer to this particular link.
+upstream nodes
+: From the perspective of a specific node, upstream nodes include all nodes that refer to this particular node as their "next node".
 
 instruction
 : One or more SQL statements that must be executed within a transaction.
@@ -67,20 +67,24 @@ instruction log
 
 The system's basic principles are relatively simple, and based on recursion.
 
-For each (sequence_number, instruction) received, do:
+```
+Open a transaction, play changes locally, send changes to N+1, commit transaction.
+```
+
+More specifically, for each (sequence_number, instruction) received, do:
 
 1. If sequence_number exists in instruction log, return the corresponding instruction from the log.
 2. Run the instruction locally. If it fails, return the error
-3. Send (sequence_number, instruction) to link N+1 if any
+3. Send (sequence_number, instruction) to node N+1 if any
 4. If N+1 returned an existing instruction for that sequence number, roll back step #2 and play that instruction instead. Return that instruction
 
 This has the following practical implications:
 
-- You can technically send your instructions to any link in the chain, but uplinks will not be aware of the changes until they try to write as well.
-- If a link is down in the chain, it is possible to write to downstream links, but not upstream links.
-- Conversely, if the tail link is down, it is not possible to write to the chain.
-- Any link in the chain can decide to fail the instruction because of an inconsistent state.
-- A link will refuse to execute an instruction with a reused sequence number. Previous links in the chain are responsible for recovering.
+- You can technically send your instructions to any node in the chain, but upnodes will not be aware of the changes until they try to write as well.
+- If a node is down in the chain, it is possible to write to downstream nodes, but not upstream nodes.
+- Conversely, if the root node is down, it is not possible to write to the chain.
+- Any node in the chain can decide to fail the instruction because of an inconsistent state.
+- A node will refuse to execute an instruction with a reused sequence number. Previous nodes in the chain are responsible for recovering.
 
 ### Concurrent submissions to the chain
 
@@ -113,24 +117,24 @@ insert into instruction_log (statements) values ('...');
 
 We use this property to ensure that each instruction has a unique sequence number across the whole chain.
 
-This is done by keeping a transaction open until the N+1 link itself completes the transaction. For example, here's the transactions for a 3-link chain:
+This is done by keeping a transaction open until the N+1 node itself completes the transaction. For example, here's the transactions for a 3-node chain:
 
 ```
-head link opens transaction
-    mid link opens transaction
-        tail link opens transaction
-        tail link commits
-    mid link commits
-head link commits
+leaf node opens transaction
+    mid node opens transaction
+        root node opens transaction
+        root node commits
+    mid node commits
+leaf node commits
 ```
 
 The chain is always traversed in the same order, which prevents deadlocks.
 
-It could also happen that two updates are triggered from different levels of the chain. For example, one update sent to the head link, and another update sent to the mid link.
+It could also happen that two updates are triggered from different levels of the chain. For example, one update sent to the leaf node, and another update sent to the mid node.
 
-Consider an empty database. Concurrent updates are sent to head (update A) and mid link (update B). Because the database is empty, head link will assign sequence_number 1 to update A. It then forwards the instruction to mid link with that sequence_number.
+Consider an empty database. Concurrent updates are sent to head (update A) and mid node (update B). Because the database is empty, leaf node will assign sequence_number 1 to update A. It then forwards the instruction to mid node with that sequence_number.
 
 One of two things can happen:
 
-1. mid link hasn't assigned a sequence_number to update B yet. It will have to wait until update A finishes.
-2. mid link has already assigned sequence_number 1 to update B. If update B finishes successfully, sequence_number 1 will no longer be available, and mid will return update B to the head link. If update B fails, sequence_number 1 will be available, and update A will continue normally.
+1. mid node hasn't assigned a sequence_number to update B yet. It will have to wait until update A finishes.
+2. mid node has already assigned sequence_number 1 to update B. If update B finishes successfully, sequence_number 1 will no longer be available, and mid will return update B to the leaf node. If update B fails, sequence_number 1 will be available, and update A will continue normally.
