@@ -3,6 +3,8 @@
  * The standard synchronizable database.
  * It records every instruction it ran, and can
  * also extract the history for upstream nodes that need to be updated.
+ * 
+ * Pretty good for keeping your website alive on various locations.
  */
 class InstructionLogDatabase implements Database {
     const DEFAULT_SEQUENCE_NUMBER = 0;

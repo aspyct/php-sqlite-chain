@@ -1,10 +1,5 @@
 <?php
-require_once('config.php');
-require_once('classes.php');
+require_once(__DIR__.'/classes.php');
 
-$database = new InstructionLogDatabase(DATABASE_PATH);
-$nextNode = new NoNextNode($database);
-$choreographer = new StandardChoreographer($database, $nextNode);
-$api = new JsonPublicApi($choreographer);
-
+$api = require_once('config.php');
 $api->handleRequest();

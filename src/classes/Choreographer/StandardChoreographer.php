@@ -5,6 +5,11 @@ class StandardChoreographer implements Choreographer {
      */
     private $database;
 
+    /**
+     * @property NextNode
+     */
+    private $nextNode;
+
     public function runInstruction(Instruction $newInstruction) : int {
         $this->database->beginTransaction();
         
