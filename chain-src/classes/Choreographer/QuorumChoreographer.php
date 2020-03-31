@@ -20,7 +20,7 @@ class QuorumChoreographer implements Choreographer {
     private $peers;
 
     public function __construct(string $myPeerId, array $peers, Database $database) {
-        $this->me = $$peers[$myPeerId];
+        $this->me = $peers[$myPeerId];
         $this->peers = $peers;
         $this->database = $database;
     }
