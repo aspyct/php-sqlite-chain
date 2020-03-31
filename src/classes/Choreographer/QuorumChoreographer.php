@@ -127,6 +127,12 @@ class QuorumChoreographer implements Choreographer {
         return $this->database->getRecordedInstructions($sequenceNumber);
     }
 
+    /**
+     * Run a list of recorded instructions against our database.
+     * Check the state hashes along the way, and fail if any of them is wrong.
+     * 
+     * @throw StateHashMismatchException
+     */
     private function runRecordedInstructions(array $recordedInstructionList) : void {
         foreach ($recordedInstructionList as $recordedInstruction) {
             $sequenceNumber = $recordedInstruction->getSequenceNumber();
