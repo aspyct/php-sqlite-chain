@@ -3,7 +3,7 @@
  * A fake next node.
  * It will not execute any instruction, and will return a new sequence number.
  */
-class NoNextNode implements NextNode {
+class NoRemoteNode implements RemoteNode {
     private $database;
 
     public function __construct(Database $database) {

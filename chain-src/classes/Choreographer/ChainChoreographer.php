@@ -6,16 +6,16 @@ class StandardChoreographer implements Choreographer {
     private $database;
 
     /**
-     * @property NextNode
+     * @property RemoteNode
      */
-    private $nextNode;
+    private $RemoteNode;
 
     public function runInstruction(Instruction $newInstruction) : int {
         $this->database->beginTransaction();
         
         try {
             $lastKnownSequenceNumber = $this->database->getLastSequenceNumber();
-            $instructionList = $this->nextNode->runInstruction($lastKnownSequenceNumber, $newInstruction);
+            $instructionList = $this->RemoteNode->runInstruction($lastKnownSequenceNumber, $newInstruction);
 
             foreach ($instructionList as $sequenceNumber => $instruction) {
                 $this->database->runInstruction($sequenceNumber, $instruction);

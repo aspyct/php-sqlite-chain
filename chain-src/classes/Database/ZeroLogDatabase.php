@@ -5,6 +5,7 @@
  * and will simply run the instructions it is given.
  * 
  * Pretty good for logging, when you can afford that some databases don't have all the data.
+ * You can use this with a PeerChoreographer to offer HA writes on the cluster.
  * 
  * It doesn't play well with other logged databases like
  * - InstructionLogDatabase

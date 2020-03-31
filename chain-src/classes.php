@@ -8,9 +8,9 @@ $all_classes = [
     'Database' => [
         'InstructionLogDatabase'
     ],
-    'NextNode' => [
-        'HttpNextNode',
-        'NoNextNode'
+    'RemoteNode' => [
+        'HttpRemoteNode',
+        'NoRemoteNode'
     ]
 ];
 

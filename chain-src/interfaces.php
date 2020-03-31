@@ -24,7 +24,7 @@ interface Choreographer {
     function getInstructionsSince(int $lastKnownSequenceNumber) : array;
 }
 
-interface NextNode {
+interface RemoteNode {
     /**
      * Execute the new instruction, and then return an array containing
      * all the instructions executed since $lastKnownSequenceNumber, including

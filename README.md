@@ -2,9 +2,11 @@
 
 A distributed sqlite database implementation for php.
 
+This database offers various levels of consistency and availability depending on your configuration.
+
 ## Overview
 
-- Strict transaction ordering on all nodes
+- Strict transaction ordering on all nodes (depending on the chosen Choreographer).
 - Highly available read: data can be read locally even if other hosts are down. Data is replicated fully on each node.
 - Writes propagate through the whole chain before returning
 - Unexpected crashes causing a partial write can be recovered.
@@ -63,7 +65,14 @@ instruction sequence number
 instruction log
 : A simple log of executed (sequence_number, instruction)
 
-## Mechanics overview
+## Configuration
+
+All nodes in the cluster should have the same choreographer.
+
+Chose your database type based on the choreographer you have.
+Choreographers may also enforce requirements on the RemoteNodes.
+
+## Mechanics overview (Chain Choreographer)
 
 The system's basic principles are relatively simple, and based on recursion.
 
