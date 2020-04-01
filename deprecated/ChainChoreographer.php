@@ -1,5 +1,5 @@
 <?php
-class StandardChoreographer implements Choreographer {
+class ChainChoreographer implements Choreographer {
     /**
      * @property Database
      */

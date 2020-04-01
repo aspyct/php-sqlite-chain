@@ -7,17 +7,6 @@ interface Statement {
 interface Instruction {
     function getStatements() : array;
     function hash() : string;
-    function toJson() : string;
-}
-
-interface PeerStatus {
-    const STATUS_LOCKED = 1;
-    const STATUS_UNREACHABLE = 2;
-    const STATUS_READY = 3;
-
-    function getStateHash() : string;
-    function qetLastSequenceNumber() : int;
-    function getStatus() : int;
 }
 
 interface Peer {
@@ -26,19 +15,31 @@ interface Peer {
 }
 
 interface Transaction {
-    function getPeerStatus(string $peerId) : PeerStatus;
-    function getRandomUncheckedPeerId() : string;
+    /**
+     * @return Peer a random unmarked peer, or null if no peer is left unmarked.
+     */
+    function pickRandomUnmarkedPeer() : ?Peer;
 
-    function getLastSequenceNumber() : int;
-    function getPeersAtSequenceNumber(int $sequenceNumber) : string;
+    /**
+     * @throw InvalidArgumentException if we don't know its sequence number, of if peer doesn't exist
+     */
+    function getLastSequenceNumber(Peer $peerId) : int;
+    function getMostRecentSequenceNumber() : int;
+    function getPeersAtSequenceNumber(int $sequenceNumber) : array;
 
     function markPeerReady(Peer $peer, int $lastKnownSequenceNumber) : void;
     function markPeerLocked(Peer $peer, int $lastKnownSequenceNumber) : void;
     function markPeerDown(Peer $peer) : void;
 
-    function countAllPeers() : int;
-    function countLockedPeers() : int;
-    function countDownPeers() : int;
+    function countPeers() : int;
+    function countPeersReady() : int;
+    function countPeersLocked() : int;
+    function countPeersDown() : int;
+}
+
+interface TransactionFactory {
+    function createFromExistingTransaction(Transaction $transaction);
+    function createNewTransaction();
 }
 
 interface Choreographer {
@@ -54,6 +55,12 @@ interface Choreographer {
      * Returns all the instructions for which the sequence number > $lastKnownSequenceNumber
      */
     function getInstructionsSince(int $lastKnownSequenceNumber) : array;
+}
+
+interface PeerProvider {
+    function getPeer(string $peerId) : Peer;
+    function getLocalPeer() : Peer;
+    function listAllPeers() : array;
 }
 
 interface RunResult {
@@ -97,7 +104,7 @@ interface Database {
      * 
      * Returns true if the lock was acquired. False otherwise.
      */
-    function beginTransaction() : bool;
+    function lock() : bool;
 
     function commit() : void;
     function rollback() : void;

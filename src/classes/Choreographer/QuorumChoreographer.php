@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 class QuorumChoreographer implements Choreographer {
     /**
      * @property Database
@@ -6,23 +6,13 @@ class QuorumChoreographer implements Choreographer {
     private $database;
 
     /**
-     * The ID of this peer
-     * 
-     * @property Peer
+     * @property PeerProvider
      */
-    private $me;
+    private $peerProvider;
 
-    /**
-     * List of all the peers in the network, including this one.
-     * 
-     * @property array<string,Peer>
-     */
-    private $peers;
-
-    public function __construct(string $myPeerId, array $peers, Database $database) {
-        $this->me = $peers[$myPeerId];
-        $this->peers = $peers;
+    public function __construct(Database $database, PeerProvider $peerProvider) {
         $this->database = $database;
+        $this->peerProvider = $peerProvider;
     }
 
     /**
@@ -36,7 +26,7 @@ class QuorumChoreographer implements Choreographer {
      * @throw PeerLockedException
      */
     public function runInstruction(Instruction $instruction, Transaction $transactionReceived = null) : int {
-        $lockAcquired = $this->database->beginTransaction();
+        $lockAcquired = $this->database->lock();
 
         // If the lock failed, we can still read the last sequence number.
         // And if the lock succeeded, we have the right sequence number.
@@ -46,11 +36,14 @@ class QuorumChoreographer implements Choreographer {
         // Which doesn't mean we can't provide data to another peer who would need it.
         // That's why we return the $lastSequenceNumber anyway
         if (!$lockAcquired) {
-            throw new PeerLockedException($this->me, $lastSequenceNumber);
+            throw new PeerLockedException(
+                $this->peerProvider->getLocalPeer(),
+                $lastSequenceNumber
+            );
         }
 
-        $transaction = new MutableTransaction($peers, $transactionReceived);
-        $transaction->markPeerReady($this->me, $lastSequenceNumber);
+        $transaction = new MutableTransaction($this->peerProvider->listAllPeers(), $transactionReceived);
+        $transaction->markPeerReady($this->peerProvider->getLocalPeer(), $lastSequenceNumber);
 
         try {
             $result = $this->handleTransaction($instruction, $transactionReceived);
@@ -69,10 +62,17 @@ class QuorumChoreographer implements Choreographer {
         $this->ensureEnoughPeersAreLeft($transaction);
 
         $nextPeer = $this->pickNextPeer($transaction);
-        if ($nextPeer === false) {
+        if ($nextPeer === null) {
             // We're the last one on the list.
             // And since we've already checked that enough peers were available for quorum,
             // let's just go ahead and start writing.
+
+            // TODO Might as well retry locked nodes. Since we have the quorum,
+            // it should now be possible to acquire lock on a few more,
+            // since other writers will wait before retrying.
+            // The more nodes we get, the better.
+            // Actually there's a good chance we could eventually get all of them,
+            // unless there's a lot of people trying to write.
 
             // First, get the latest data from wherever is needed
             $missingInstructions = $this->pullMissingInstructions($transaction);
@@ -109,7 +109,7 @@ class QuorumChoreographer implements Choreographer {
                 }
 
                 $this->ensureEnoughPeersAreLeft($transaction);
-            } while (($nextPeer = $this->pickNextPeer($transaction)) !== false);
+            } while (($nextPeer = $this->pickNextPeer($transaction)) !== null);
         }
 
         // This place should never be reached, since we throw an exception when not enough peers are left.
@@ -155,7 +155,7 @@ class QuorumChoreographer implements Choreographer {
      * @return Peer|false
      */
     private function pickNextPeer(Transaction $transaction) {
-        $peerId = $transaction->getRandomUncheckedPeerId();
+        $peerId = $transaction->pickRandomUnmarkedPeerId();
         return $peerId !== false ? $this->peers[$peerId] : false;
     }
 
@@ -164,9 +164,9 @@ class QuorumChoreographer implements Choreographer {
      * @throw TooManyPeersLockedException
      */
     private function ensureEnoughPeersAreLeft(Transaction $transaction) {
-        $totalPeerCount = $transaction->countAllPeers();
-        $lockedPeerCount = $transaction->countLockedPeers();
-        $downPeerCount = $transaction->countDownPeers();
+        $totalPeerCount = $transaction->countPeers();
+        $lockedPeerCount = $transaction->countPeersLocked();
+        $downPeerCount = $transaction->countPeersDown();
 
         $requiredPeersForQuorum = intdiv($totalPeerCount, 2) + 1;
         $upPeerCount = $totalPeerCount - $downPeerCount;
@@ -186,7 +186,7 @@ class QuorumChoreographer implements Choreographer {
      * that is most up to date.
      */
     private function pullLatestUpdates(Transaction $transaction) {
-        $myStatus = $transaction->getPeerStatus($this->getMyPeerId());
+        $myStatus = $transaction->getLastSequenceNumber($this->peerProvider->getLocalPeer());
 
         $myLastKnownSequenceNumber = $myStatus->getLastSequenceNumber();
         $peersLastKnownSequenceNumber = $transaction->getLastSequenceNumber();
@@ -196,7 +196,7 @@ class QuorumChoreographer implements Choreographer {
 
             // Those peers were up a few moments ago. Hopefully we can still reach at least one of them
             foreach ($eligiblePeers as $peerId) {
-                $peer = $this->peers[$peerId];
+                $peer = $this->peerProvider->getPeer($peerId);
 
                 try {
                     return $this->remotePeerClient->getInstructionsSince($peer, $myLastKnownSequenceNumber);
@@ -211,9 +211,5 @@ class QuorumChoreographer implements Choreographer {
             // Looks like we have the latest data.
             // Nothing to do here.
         }        
-    }
-
-    private function getMyPeerId() {
-        return $this->myPeerId;
     }
 }

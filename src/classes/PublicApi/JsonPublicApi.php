@@ -34,7 +34,7 @@ class JsonPublicApi extends AbstractPublicApi {
 
     }
 
-    protected function sendError(int $code, string $message, array $details) : void {
+    protected function sendError(ApiError $error) : void {
 
     }
 

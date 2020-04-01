@@ -6,7 +6,7 @@ class ImmutableApiResponse implements ApiResponse {
         $this->missingInstructions = $missingInstructions;
     }
 
-    public function getMissingInstructions() : array {
+    public function listMissingInstructions() : array {
         return $this->missingInstructions;
     }
 }

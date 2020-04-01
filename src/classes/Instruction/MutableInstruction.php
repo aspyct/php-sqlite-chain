@@ -10,7 +10,7 @@ class MutableInstruction implements Instruction {
         return $this->statements;
     }
 
-    function toJson() : string {
-        return json_encode($this->statements);
+    function hash() : string {
+        throw new NotImplementedException();
     }
 }
